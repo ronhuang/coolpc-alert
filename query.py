@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from github import Github
 from github.Issue import Issue
+import os
 import re
 import requests
 import sys
@@ -137,7 +138,7 @@ def to_markdown(items: List[Item]):
 
 
 if __name__ == "__main__":
-    access_token = sys.argv[1] if len(sys.argv) > 1 else ""
+    access_token = sys.argv[1] if len(sys.argv) > 1 else os.getenv("GITHUB_TOKEN")
     local_path = sys.argv[2] if len(sys.argv) > 2 else None
     update_issues(access_token, local_path)
     sys.exit(0)
