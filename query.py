@@ -98,7 +98,8 @@ def get_existing_from_issue(issue: Issue) -> List[Item]:
 
 def update_issues(access_token: str, local_path: Union[str, None] = None):
     g = Github(access_token)
-    repo = g.get_user().get_repo("coolpc-alert")
+    full_name = os.getenv("GITHUB_REPOSITORY", "ronhuang/coolpc-alert")
+    repo = g.get_repo(full_name)
     for issue in repo.get_issues(state="open"):
         criteria = Criteria.from_issue(issue)
 
