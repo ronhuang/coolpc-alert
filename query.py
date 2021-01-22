@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from github import Github
+from github.Issue import Issue
 import re
 import requests
 import sys
@@ -9,6 +10,7 @@ from typing import List, NamedTuple, Union
 
 name_price_re = re.compile(r"(.*), \$(\d+) .*$")
 criteria_re = re.compile(r"(.*)~~~(.*)$")
+item_re = re.compile(r"^\| (.+) \| (.+) \|$")
 
 
 class Item(NamedTuple):
@@ -20,8 +22,22 @@ class Criteria(NamedTuple):
     category: str
     subcategory: str
 
+    @classmethod
+    def from_issue(cls, issue: Issue):
+        m = criteria_re.match(issue.title)
+        if m:
+            criteria = Criteria(m.group(1), m.group(2))
+            return criteria
+        else:
+            return None
 
-def query(criteria: Criteria, local_path: Union[str, None] = None):
+
+def query(
+    criteria: Union[Criteria, None], local_path: Union[str, None] = None
+) -> List[Item]:
+    if criteria is None:
+        return list()
+
     content = None
     if local_path:
         with open(local_path, encoding="utf-8") as f:
@@ -62,15 +78,51 @@ def query(criteria: Criteria, local_path: Union[str, None] = None):
     return [item for item in items if item not in extras]
 
 
+def get_existing_from_issue(issue: Issue) -> List[Item]:
+    items: List[Item] = list()
+
+    lines = issue.body.splitlines()
+    if len(lines) <= 2:
+        # first two lines do not contain items
+        return items
+
+    for line in lines[2:]:
+        m = item_re.match(line)
+        if m:
+            item = Item(m.group(1), m.group(2))
+            items.append(item)
+
+    return items
+
+
 def update_issues(access_token: str, local_path: Union[str, None] = None):
     g = Github(access_token)
     repo = g.get_user().get_repo("coolpc-alert")
-    for issue in repo.get_issues():
-        m = criteria_re.match(issue.title)
-        if m:
-            criteria = Criteria(m.group(1), m.group(2))
-            results = query(criteria, local_path)
-            issue.edit(body=to_markdown(results))
+    for issue in repo.get_issues(state="open"):
+        criteria = Criteria.from_issue(issue)
+
+        current_items = query(criteria, local_path)
+        previous_items = get_existing_from_issue(issue)
+        new_items = [item for item in current_items if item not in previous_items]
+        missing_items = [item for item in previous_items if item not in current_items]
+
+        if (len(new_items) + len(missing_items)) > 0:
+            comment: List[str] = list()
+            if len(new_items) > 0:
+                comment.append("**New items**:")
+                comment.append(to_markdown(new_items))
+                comment.append("")
+            if len(missing_items) > 0:
+                comment.append("**Missing items**:")
+                comment.append(to_markdown(missing_items))
+                comment.append("")
+
+            issue.edit(body=to_markdown(current_items))
+            issue.create_comment("\n".join(comment))
+
+            print(f"Updated issue #{issue.number} {issue.title}")
+        else:
+            print(f"No update for issue #{issue.number} {issue.title}")
 
 
 def to_markdown(items: List[Item]):
@@ -85,6 +137,7 @@ def to_markdown(items: List[Item]):
 
 
 if __name__ == "__main__":
-    # res = query("固態硬碟 M.2｜SSD", "M.2 (PCIe) SSD固態硬碟", local_path)
-    update_issues(sys.argv[1])
+    access_token = sys.argv[1] if len(sys.argv) > 1 else ""
+    local_path = sys.argv[2] if len(sys.argv) > 2 else None
+    update_issues(access_token, local_path)
     sys.exit(0)
